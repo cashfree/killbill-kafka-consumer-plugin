@@ -6,7 +6,7 @@
         <artifactId>killbill</artifactId>
         <version>0.24.11-SNAPSHOT</version>
     </parent>
-    <groupId>com.cashfree.kill-bill.billing.plugin.java</groupId>
+    <groupId>com.cashfree.kill-bill.billing</groupId>
     <artifactId>kafka-consumer-plugin</artifactId>
     <version>2.0.1-SNAPSHOT</version>
     <packaging>bundle</packaging>
