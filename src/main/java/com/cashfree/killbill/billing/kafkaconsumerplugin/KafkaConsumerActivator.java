@@ -9,7 +9,7 @@ import javax.servlet.http.HttpServlet;
 import com.cashfree.killbill.billing.kafkaconsumerplugin.config.KafkaConsumerConfig;
 import com.cashfree.killbill.billing.kafkaconsumerplugin.config.KafkaProducerConfig;
 import com.cashfree.killbill.billing.kafkaconsumerplugin.json.KafkaProp;
-import com.cashfree.killbill.billing.kafkaconsumerplugin.listeners.UsageMetricListenerListener;
+import com.cashfree.killbill.billing.kafkaconsumerplugin.listeners.UsageMetricListener;
 import lombok.extern.slf4j.Slf4j;
 import com.cashfree.killbill.billing.kafkaconsumerplugin.controllers.KafkaProducerServlet;
 import org.killbill.billing.osgi.api.OSGIPluginProperties;
@@ -38,11 +38,7 @@ public class KafkaConsumerActivator extends KillbillActivatorBase {
         final KafkaProp kafkaProp = new KafkaProp(globalConfiguration);
         final KafkaConsumerConfig kafkaConsumerConfig = new KafkaConsumerConfig(kafkaProp);
         final KafkaProducerConfig kafkaProducerConfig = new KafkaProducerConfig((kafkaProp));
-        final UsageMetricListenerListener kafkaListener = new UsageMetricListenerListener(kafkaProp.getUsageMetricTopic(),killbillAPI, kafkaConsumerConfig.getKafkaConfig());
-
-        // Register Kafka listener as a service
-        registerKafkaListener(context, kafkaListener);
-
+        final UsageMetricListener kafkaListener = new UsageMetricListener(kafkaProp.getUsageMetricTopic(),killbillAPI, kafkaConsumerConfig.getKafkaConfig());
 
         final PluginApp pluginApp = new PluginAppBuilder(PLUGIN_NAME, killbillAPI, dataSource, super.clock,
                                                          configProperties).withRouteClass(KafkaProducerServlet.class)
@@ -65,12 +61,5 @@ public class KafkaConsumerActivator extends KillbillActivatorBase {
         log.info("KafkaConsumerActivator stopped");
 
 
-    }
-
-
-    private void registerKafkaListener(final BundleContext context, final UsageMetricListenerListener kafkaListener){
-        final Hashtable<String, String> props = new Hashtable<String, String>();
-        props.put(OSGIPluginProperties.PLUGIN_NAME_PROP, PLUGIN_NAME);
-        registrar.registerService(context, UsageMetricListenerListener.class, kafkaListener, props);
     }
 }

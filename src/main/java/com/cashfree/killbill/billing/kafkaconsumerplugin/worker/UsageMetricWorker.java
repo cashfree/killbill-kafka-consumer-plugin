@@ -10,6 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.joda.time.DateTime;
+import org.killbill.billing.catalog.api.CatalogApiException;
+import org.killbill.billing.catalog.api.StaticCatalog;
+import org.killbill.billing.catalog.api.Unit;
+import org.killbill.billing.catalog.api.VersionedCatalog;
 import org.killbill.billing.entitlement.api.Subscription;
 import org.killbill.billing.entitlement.api.SubscriptionApiException;
 import org.killbill.billing.osgi.libs.killbill.OSGIKillbillAPI;
@@ -19,7 +23,12 @@ import org.killbill.billing.usage.api.UsageApiException;
 import org.killbill.billing.util.callcontext.CallOrigin;
 import org.killbill.billing.util.callcontext.UserType;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -56,54 +65,67 @@ public class UsageMetricWorker implements Runnable{
         this.partition = partition;
     }
 
-@Override
-public void run() {
-    startStopLock.lock();
-    if (stopped){
-        return;
+    @Override
+    public void run() {
+        startStopLock.lock();
+        if (stopped){
+            return;
+        }
+        started = true;
+        startStopLock.unlock();
+
+        for (ConsumerRecord<String, String> record : records) {
+            if (stopped)
+                break;
+            if(record==null){
+                log.info("record is null");
+                continue;
+            }
+            final Map<UUID, Set<String>> tenantToUnitsMap = new HashMap<>();
+            try{
+                log.info("Received message: {} from partition : {}" , record.value(),partition.partition());
+                ConsumerSubscriptionUsageRecord usageRecord = null;
+                usageRecord = objectMapper.readValue(record.value(), ConsumerSubscriptionUsageRecord.class);
+                log.info("UsageMetricWorker :: usageRecord :: " + usageRecord);
+                UsageMetricUtils.validateUsage(usageRecord);
+                final PluginCallContext callContext = new PluginCallContext(UUID.randomUUID(), KAFKA_CONSUMER_PLUGIN, CallOrigin.INTERNAL,
+                        UserType.ADMIN, REASON_CODE + this.getClass().getSimpleName(), COMMENT + this.getClass().getSimpleName(),
+                        DateTime.now(), DateTime.now(), null, usageRecord.getTenantId());
+                mapTenantToUnits(usageRecord.getTenantId(), tenantToUnitsMap, callContext);
+                UsageMetricUtils.validateUnits(tenantToUnitsMap.get(usageRecord.getTenantId()),usageRecord.getUnitUsageRecords());
+                Subscription subscription = osgiKillbillAPI.getSubscriptionApi().getSubscriptionForExternalKey(usageRecord.getSubscriptionExternalKey(), false, callContext);
+                UsageMetricUtils.validateUnitUsage(usageRecord,subscription);
+                final SubscriptionUsageRecord subscriptionUsageRecord = usageMetricUtils.createSubscriptionUsageRecord(usageRecord, subscription.getId());
+                osgiKillbillAPI.getUsageUserApi().recordRolledUpUsage(subscriptionUsageRecord, callContext);
+                log.info("UsageMetricWorker :: usage recorded");
+
+            } catch (JsonProcessingException e) {
+                log.error("UsageMetricWorker :: JsonProcessingException :: " + e.getMessage(), e);
+            } catch (UsageApiException | CatalogApiException e) {
+                log.error("UsageMetricWorker :: UsageApiException | CatalogApiException :: " + e.getMessage(), e);
+            } catch (SubscriptionApiException e) {
+                log.error("UsageMetricWorker :: SubscriptionApiException :: " + e.getMessage(), e);
+            } catch(Exception e){
+                log.error("UsageMetricWorker :: Exception :: " + e.getMessage(), e);
+            }
+            currentOffset.set(record.offset() + 1);
+        }
+        finished = true;
+        completion.complete(currentOffset.get());
     }
-    started = true;
-    startStopLock.unlock();
-
-    for (ConsumerRecord<String, String> record : records) {
-        if (stopped)
-            break;
-        if(record==null){
-            log.info("record is null");
-            continue;
+    private void mapTenantToUnits(final UUID tenantId, final Map<UUID, Set<String>> tenantToUnitsMap, final PluginCallContext callContext) throws CatalogApiException {
+        if (!tenantToUnitsMap.containsKey(tenantId)) {
+            final VersionedCatalog versionedCatalog = osgiKillbillAPI.getCatalogUserApi().getCatalog("unused", callContext);
+            final List<String> units = new ArrayList<>();
+            for (final StaticCatalog catalog : versionedCatalog.getVersions()) {
+                for (final Unit unit : catalog.getUnits()) {
+                    units.add(unit.getName());
+                }
+                final Set<String> newSet = new HashSet<>(units);
+                tenantToUnitsMap.put(tenantId, newSet);
+            }
         }
-        try{
-            log.info("Received message: {} from partition : {}" , record.value(),partition.partition());
-            ConsumerSubscriptionUsageRecord usageRecord = null;
-            usageRecord = objectMapper.readValue(record.value(), ConsumerSubscriptionUsageRecord.class);
-            log.info("UsageMetricWorker :: usageRecord :: " + usageRecord);
-            UsageMetricUtils.validateUsage(usageRecord);
-            final PluginCallContext callContext = new PluginCallContext(UUID.randomUUID(), KAFKA_CONSUMER_PLUGIN, CallOrigin.INTERNAL,
-                    UserType.ADMIN, REASON_CODE + this.getClass().getSimpleName(), COMMENT + this.getClass().getSimpleName(),
-                    DateTime.now(), DateTime.now(), null, usageRecord.getTenantId());
-
-            Subscription subscription = osgiKillbillAPI.getSubscriptionApi().getSubscriptionForExternalKey(usageRecord.getSubscriptionExternalKey(), false, callContext);
-            UsageMetricUtils.validateUnitUsage(usageRecord,subscription);
-            final SubscriptionUsageRecord subscriptionUsageRecord = usageMetricUtils.createSubscriptionUsageRecord(usageRecord, subscription.getId());
-            osgiKillbillAPI.getUsageUserApi().recordRolledUpUsage(subscriptionUsageRecord, callContext);
-            log.info("UsageMetricWorker :: usage recorded");
-
-        }
-        catch (JsonProcessingException e) {
-            log.error("UsageMetricWorker :: JsonProcessingException :: " + e.getMessage());
-        }   catch (UsageApiException e) {
-            log.error("UsageMetricWorker :: UsageApiException :: " + e.getMessage());
-        } catch (SubscriptionApiException e) {
-            log.error("UsageMetricWorker :: SubscriptionApiException :: " + e.getMessage());
-        }
-        catch(Exception e){
-            log.error("UsageMetricWorker :: Exception :: " + e.getMessage());
-        }
-        currentOffset.set(record.offset() + 1);
     }
-    finished = true;
-    completion.complete(currentOffset.get());
-}
 
     public long getCurrentOffset() {
         return currentOffset.get();

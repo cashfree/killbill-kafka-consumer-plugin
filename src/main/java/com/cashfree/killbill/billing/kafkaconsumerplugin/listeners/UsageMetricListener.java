@@ -25,7 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
-public class UsageMetricListenerListener implements Runnable, ConsumerRebalanceListener {
+public class UsageMetricListener implements Runnable, ConsumerRebalanceListener {
     private final KafkaConsumer<String, String> consumer;
     private final ExecutorService executor = Executors.newFixedThreadPool(8);
     private final AtomicBoolean stopped = new AtomicBoolean(false);
@@ -36,7 +36,7 @@ public class UsageMetricListenerListener implements Runnable, ConsumerRebalanceL
     private long lastCommitTime = System.currentTimeMillis();
     private final String topic;
 
-    public UsageMetricListenerListener(String topic, final OSGIKillbillAPI osgiKillbillAPI, Properties kafkaProperties) {
+    public UsageMetricListener(String topic, final OSGIKillbillAPI osgiKillbillAPI, Properties kafkaProperties) {
         this.osgiKillbillAPI = osgiKillbillAPI;
         consumer = new KafkaConsumer<>(kafkaProperties);
         this.topic = topic;

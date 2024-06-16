@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import com.cashfree.killbill.billing.kafkaconsumerplugin.json.ConsumerSubscriptionUsageRecord;
 import com.cashfree.killbill.billing.kafkaconsumerplugin.json.ConsumerUnitUsageRecord;
@@ -69,7 +70,16 @@ public class UsageMetricUtils {
         }
     }
 
+    public static void validateUnits(final Set<String> catalogUnits, final List<ConsumerUnitUsageRecord> usageUnits) throws BadRequestException {
+        final List<String> invalidUnits = usageUnits.stream()
+                .map(ConsumerUnitUsageRecord::getUnitType)
+                .filter(unit -> !catalogUnits.contains(unit))
+                .collect(Collectors.toList());
 
+        if (!invalidUnits.isEmpty()) {
+            throw new BadRequestException("Invalid units provided: " + invalidUnits);
+        }
+    }
 
 
     public static void validateUsage(ConsumerSubscriptionUsageRecord usageRecord) throws BadRequestException {
