@@ -46,6 +46,10 @@ public class KafkaConsumerActivator extends KillbillActivatorBase {
         final HttpServlet httpServlet = PluginApp.createServlet(pluginApp);
         registerServlet(context, httpServlet);
 
+        //start kafka listeners
+        new Thread(kafkaListener).start();
+
+
     }
 
     private void registerServlet(final BundleContext context, final Servlet servlet) {

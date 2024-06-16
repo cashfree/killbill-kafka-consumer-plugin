@@ -40,7 +40,6 @@ public class UsageMetricListener implements Runnable, ConsumerRebalanceListener 
         this.osgiKillbillAPI = osgiKillbillAPI;
         consumer = new KafkaConsumer<>(kafkaProperties);
         this.topic = topic;
-        new Thread(this).start();
     }
     @Override
     public void run() {
